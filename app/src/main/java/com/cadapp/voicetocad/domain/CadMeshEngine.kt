@@ -121,7 +121,7 @@ object CadMeshEngine {
     when {
       bottomBlend != null -> {
         val r = bottomBlend.radiusMm.coerceAtMost(min(halfH * 0.85f, maxInset))
-        val steps = 5
+        val steps = 8
         for (i in 0..steps) {
           val theta = (PI / 2.0) * (1.0 - i.toDouble() / steps)
           val z = -halfH + r - (r * sin(theta)).toFloat()
@@ -143,7 +143,7 @@ object CadMeshEngine {
     when {
       topBlend != null -> {
         val r = topBlend.radiusMm.coerceAtMost(min(halfH * 0.85f, maxInset))
-        val steps = 5
+        val steps = 8
         for (i in 0..steps) {
           val theta = (PI / 2.0) * (i.toDouble() / steps)
           val z = halfH - r + (r * sin(theta)).toFloat()
@@ -412,7 +412,7 @@ object CadMeshEngine {
     }
 
     val r = cornerRadius.coerceAtMost(min(hw, hd) - 0.5f)
-    val arcSteps = if (smoothCorner) 5 else 1
+    val arcSteps = if (smoothCorner) 8 else 1
     val centers = listOf(
       Triple(hw - r, hd - r, 0.0),
       Triple(-hw + r, hd - r, PI / 2.0),

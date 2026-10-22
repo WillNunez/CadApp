@@ -27,6 +27,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
@@ -39,6 +41,7 @@ import com.cadapp.voicetocad.domain.RenderMode
 import com.cadapp.voicetocad.domain.Vec3
 import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -209,52 +212,101 @@ fun CadViewport3D(
           g += step
         }
 
-        // 2. Depth-sort and draw 3D mesh triangles
-        val lightDir = Vec3(0.45f, -0.55f, 0.70f).normalized()
-        val fillAlpha =
-          when (renderMode) {
-            RenderMode.SHADED_EDGES -> 1.0f
-            RenderMode.XRAY -> 0.42f
-            RenderMode.WIREFRAME -> 0.0f
-          }
+        // 2. Soft Projected Studio Drop-Shadow on Floor Plane (for Shaded mode)
+        if (renderMode == RenderMode.SHADED_EDGES) {
+          val shadowScaleX = bx * 0.56f
+          val shadowScaleY = by * 0.56f
+          val shadowCorners =
+            listOf(
+              project(Vec3(-shadowScaleX, -shadowScaleY, floorZ - 0.5f)),
+              project(Vec3(shadowScaleX, -shadowScaleY, floorZ - 0.5f)),
+              project(Vec3(shadowScaleX, shadowScaleY, floorZ - 0.5f)),
+              project(Vec3(-shadowScaleX, shadowScaleY, floorZ - 0.5f)),
+            )
+          val shadowPath =
+            Path().apply {
+              moveTo(shadowCorners[0].x, shadowCorners[0].y)
+              lineTo(shadowCorners[1].x, shadowCorners[1].y)
+              lineTo(shadowCorners[2].x, shadowCorners[2].y)
+              lineTo(shadowCorners[3].x, shadowCorners[3].y)
+              close()
+            }
+          drawPath(shadowPath, color = Color(0x5503070C))
+        }
+
+        // 3. Depth-sort and draw 3D mesh triangles with 3-Point Studio Blinn-Phong Shading
+        // Key light from upper-left-front, fill light from right, rim/top sky bounce
+        val keyLight = Vec3(-0.48f, -0.58f, 0.66f).normalized()
+        val fillLight = Vec3(0.72f, 0.22f, 0.66f).normalized()
+        val viewDir = Vec3(0f, 0f, 1f)
+        val halfVec = (keyLight + viewDir).normalized()
 
         if (renderMode != RenderMode.WIREFRAME) {
           val sortedTris =
             mesh.triangles
               .map { tri ->
                 val camCentroid = toCameraSpace(tri.centroid)
-                Pair(tri, camCentroid.z)
+                val camV0 = toCameraSpace(tri.v0)
+                val camV1 = toCameraSpace(tri.v1)
+                val camV2 = toCameraSpace(tri.v2)
+                // Compute true camera-space geometric normal and orient outward
+                var camN = (camV1 - camV0).cross(camV2 - camV0).normalized()
+                val rawCamN = toCameraSpace(tri.normal).normalized()
+                if (camN.x * rawCamN.x + camN.y * rawCamN.y + camN.z * rawCamN.z < 0f) {
+                  camN = camN * -1f
+                }
+                Triple(tri, camCentroid.z, camN)
+              }
+              // Back-to-front painter's algorithm; in Shaded mode, cull hidden back-faces of outer body
+              .filter { (tri, _, camN) ->
+                if (renderMode == RenderMode.XRAY) true
+                else if (tri.group == FaceGroup.HOLE_BORE || tri.group == FaceGroup.SHELL_CAVITY) true
+                else camN.z >= -0.18f
               }
               .sortedBy { it.second }
 
           val path = Path()
-          for ((tri, _) in sortedTris) {
+          for ((tri, _, camNormal) in sortedTris) {
             val s0 = project(tri.v0)
             val s1 = project(tri.v1)
             val s2 = project(tri.v2)
 
-            val camNormal = toCameraSpace(tri.normal).normalized()
-            val diffuse = kotlin.math.abs(
-              camNormal.x * lightDir.x + camNormal.y * lightDir.y + camNormal.z * lightDir.z
-            )
-            val shade = (0.38f + 0.62f * diffuse).coerceIn(0.25f, 1.0f)
+            // Oriented normal toward viewer for interior cavities/bores
+            val n = if (camNormal.z < 0f) camNormal * -1f else camNormal
+
+            // Signed 3-point studio lighting (gives distinct lightness to Top, Front-Left, and Front-Right faces)
+            val keyDiffuse = max(0f, n.x * keyLight.x + n.y * keyLight.y + n.z * keyLight.z)
+            val fillDiffuse = max(0f, n.x * fillLight.x + n.y * fillLight.y + n.z * fillLight.z)
+            val topSkyBounce = (tri.normal.z * 0.5f + 0.5f).coerceIn(0f, 1f)
+
+            // Blinn-Phong specular highlight for metallic CAD sheen on fillets & cylinders
+            val nDotH = max(0f, n.x * halfVec.x + n.y * halfVec.y + n.z * halfVec.z)
+            val specPower = if (tri.group == FaceGroup.FILLET_BLEND) 18f else 28f
+            val specStrength = if (tri.group == FaceGroup.FILLET_BLEND) 0.42f else 0.24f
+            val specular = nDotH.pow(specPower) * specStrength
+
+            val cavityDim =
+              if (tri.group == FaceGroup.HOLE_BORE || tri.group == FaceGroup.SHELL_CAVITY) 0.72f else 1.0f
+
+            val shade =
+              ((0.26f + 0.52f * keyDiffuse + 0.18f * fillDiffuse + 0.14f * topSkyBounce) * cavityDim)
+                .coerceIn(0.18f, 1.05f)
 
             val baseRgb =
               when (tri.group) {
-                FaceGroup.BASE_BODY -> Triple(108f, 148f, 188f)
-                FaceGroup.FILLET_BLEND -> Triple(38f, 206f, 228f)
-                FaceGroup.CHAMFER_BEVEL -> Triple(255f, 184f, 48f)
-                FaceGroup.HOLE_BORE -> Triple(74f, 118f, 152f)
-                FaceGroup.SHELL_CAVITY -> Triple(88f, 168f, 198f)
+                FaceGroup.BASE_BODY -> Triple(92f, 152f, 214f)       // Machined anodized cobalt steel
+                FaceGroup.FILLET_BLEND -> Triple(24f, 212f, 242f)    // Polished cyan fillet blend
+                FaceGroup.CHAMFER_BEVEL -> Triple(255f, 188f, 44f)   // Gold/amber chamfer bevel
+                FaceGroup.HOLE_BORE -> Triple(54f, 96f, 138f)        // Shadowed interior bore wall
+                FaceGroup.SHELL_CAVITY -> Triple(68f, 128f, 168f)    // Machined pocket wall
               }
 
-            val faceColor =
-              Color(
-                red = ((baseRgb.first * shade) / 255f).coerceIn(0f, 1f),
-                green = ((baseRgb.second * shade) / 255f).coerceIn(0f, 1f),
-                blue = ((baseRgb.third * shade) / 255f).coerceIn(0f, 1f),
-                alpha = fillAlpha,
-              )
+            val r = ((baseRgb.first * shade) / 255f + specular).coerceIn(0f, 1f)
+            val g = ((baseRgb.second * shade) / 255f + specular).coerceIn(0f, 1f)
+            val b = ((baseRgb.third * shade) / 255f + specular * 1.1f).coerceIn(0f, 1f)
+            val fillAlpha = if (renderMode == RenderMode.XRAY) 0.42f else 1.0f
+
+            val faceColor = Color(red = r, green = g, blue = b, alpha = fillAlpha)
 
             path.reset()
             path.moveTo(s0.x, s0.y)
@@ -263,11 +315,19 @@ fun CadViewport3D(
             path.close()
 
             drawPath(path, color = faceColor)
-            if (renderMode == RenderMode.XRAY) {
+            if (renderMode == RenderMode.SHADED_EDGES) {
+              // Fuse coplanar adjacent triangles seamlessly so no dark background cracks appear
+              drawPath(
+                path,
+                color = faceColor,
+                style = Stroke(width = 1.35f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+              )
+            } else if (renderMode == RenderMode.XRAY) {
               drawPath(path, color = Color(0x444FC3F7), style = Stroke(width = 0.8f))
             }
           }
         } else {
+          // Pure Wireframe Mode
           val path = Path()
           for (tri in mesh.triangles) {
             val s0 = project(tri.v0)
@@ -285,20 +345,16 @@ fun CadViewport3D(
                 FaceGroup.HOLE_BORE -> Color(0xFF80DEEA)
                 else -> Color(0xFF64B5F6)
               }
-            drawPath(path, color = wireColor, style = Stroke(width = 1.2f))
+            drawPath(path, color = wireColor, style = Stroke(width = 1.1f))
           }
-        }
-
-        // 3. Draw sharp CAD topology feature edges
-        val edgeColor =
-          if (renderMode == RenderMode.WIREFRAME) Color(0xFFE1F5FE) else Color(0xCCBCE4FA)
-        for ((a, b) in mesh.featureEdges) {
-          drawLine(
-            color = edgeColor,
-            start = project(a),
-            end = project(b),
-            strokeWidth = 1.5f,
-          )
+          for ((a, b) in mesh.featureEdges) {
+            drawLine(
+              color = Color(0xFFE1F5FE),
+              start = project(a),
+              end = project(b),
+              strokeWidth = 1.6f,
+            )
+          }
         }
 
         // 4. Draw 3D Orientation Triad (X/Y/Z Gizmo) in bottom-left with safe margin
