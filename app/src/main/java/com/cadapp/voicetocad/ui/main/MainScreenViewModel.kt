@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.cadapp.voicetocad.data.CadNetworkService
 import com.cadapp.voicetocad.data.DataRepository
 import com.cadapp.voicetocad.data.DefaultDataRepository
+import com.cadapp.voicetocad.data.OctoPiSshAndPrinterService
+import com.cadapp.voicetocad.data.PrinterControlAction
 import com.cadapp.voicetocad.domain.AppSettings
 import com.cadapp.voicetocad.domain.BackendSource
 import com.cadapp.voicetocad.domain.CadDimensionParameter
@@ -19,6 +21,7 @@ import com.cadapp.voicetocad.domain.DimensionField
 import com.cadapp.voicetocad.domain.EdgeTarget
 import com.cadapp.voicetocad.domain.GuardrailWarning
 import com.cadapp.voicetocad.domain.OpenCascadeStepKernel
+import com.cadapp.voicetocad.domain.PrinterTelemetryState
 import com.cadapp.voicetocad.domain.RenderMode
 import com.cadapp.voicetocad.domain.VoiceCommandLog
 import java.io.File
@@ -34,9 +37,9 @@ import kotlinx.coroutines.launch
 enum class WorkspaceTab(val title: String) {
   DIMENSIONS("Dimensions"),
   VOICE_AND_TREE("Tree & Log"),
+  OCTOPI_CONTROL("OctoPi Print"),
   OCCT_KERNEL("OCCT Code"),
-  FABRICATE_STL("STEP & STL"),
-  SETTINGS("AI & STT"),
+  SETTINGS("AI & SSH"),
 }
 
 data class CadWorkspaceUiState(
@@ -55,6 +58,7 @@ data class CadWorkspaceUiState(
   val warnings: List<GuardrailWarning> = emptyList(),
   val commandHistory: List<VoiceCommandLog> = emptyList(),
   val settings: AppSettings = AppSettings(),
+  val printerTelemetry: PrinterTelemetryState = PrinterTelemetryState(),
 )
 
 sealed interface MainScreenUiState {
@@ -326,7 +330,7 @@ class MainScreenViewModel(
     _cadState.update {
       it.copy(
         isProcessing = true,
-        statusMessage = "Dispatching NX Open script to ${state.settings.nxWorkstationUrl}...",
+        statusMessage = "Dispatching script to ${state.settings.nxWorkstationUrl}...",
       )
     }
     viewModelScope.launch {
@@ -338,6 +342,135 @@ class MainScreenViewModel(
             res.getOrElse { err ->
               "Workstation bridge note: ${err.message} (script ready for copy/export)"
             },
+        )
+      }
+    }
+  }
+
+  fun testOctoPiSsh() {
+    val state = _cadState.value
+    _cadState.update {
+      it.copy(
+        isProcessing = true,
+        statusMessage = "Connecting via SSH to ${state.settings.octoPiSshUser}@${state.settings.octoPiSshHost}:${state.settings.octoPiSshPort}...",
+      )
+    }
+    viewModelScope.launch {
+      val res = OctoPiSshAndPrinterService.testSshAndDiscoverApiKey(state.settings)
+      _cadState.update { cur ->
+        res.fold(
+          onSuccess = { info ->
+            val updatedSettings =
+              if (info.discoveredApiKey != null && cur.settings.octoPrintApiKey.isBlank()) {
+                cur.settings.copy(octoPrintApiKey = info.discoveredApiKey)
+              } else {
+                cur.settings
+              }
+            cur.copy(
+              isProcessing = false,
+              settings = updatedSettings,
+              printerTelemetry =
+                cur.printerTelemetry.copy(
+                  sshConnected = true,
+                  piSystemSummary = info.summary,
+                  lastSshOutput = info.rawOutput,
+                ),
+              statusMessage = info.summary,
+            )
+          },
+          onFailure = { err ->
+            cur.copy(
+              isProcessing = false,
+              printerTelemetry =
+                cur.printerTelemetry.copy(
+                  sshConnected = false,
+                  piSystemSummary = "SSH error: ${err.message}",
+                ),
+              statusMessage = "SSH connection failed: ${err.message}",
+            )
+          },
+        )
+      }
+      refreshPrinterStatus()
+    }
+  }
+
+  fun uploadStlViaSftp() {
+    val state = _cadState.value
+    _cadState.update {
+      it.copy(
+        isProcessing = true,
+        statusMessage = "Uploading binary STL via SFTP to ${state.settings.octoPiSshHost}:${state.settings.octoPiRemoteDir}...",
+      )
+    }
+    viewModelScope.launch {
+      val binaryStl = CadMeshEngine.exportBinaryStl(state.mesh)
+      val res =
+        OctoPiSshAndPrinterService.uploadFileViaSftp(
+          bytes = binaryStl,
+          remoteFileName = "voice_to_cad_part.stl",
+          settings = state.settings,
+        )
+      _cadState.update { cur ->
+        cur.copy(
+          isProcessing = false,
+          statusMessage = res.getOrElse { "SFTP upload error: ${it.message}" },
+        )
+      }
+    }
+  }
+
+  fun triggerPrinterAction(action: PrinterControlAction) {
+    val state = _cadState.value
+    _cadState.update {
+      it.copy(
+        isProcessing = true,
+        statusMessage = "Sending printer command: ${action.label}...",
+      )
+    }
+    viewModelScope.launch {
+      val res = OctoPiSshAndPrinterService.executePrinterAction(action, state.settings)
+      _cadState.update { cur ->
+        cur.copy(
+          isProcessing = false,
+          statusMessage = res.getOrElse { "Printer command error: ${it.message}" },
+        )
+      }
+      refreshPrinterStatus()
+    }
+  }
+
+  fun refreshPrinterStatus() {
+    val state = _cadState.value
+    viewModelScope.launch {
+      val res = OctoPiSshAndPrinterService.pollPrinterTelemetry(state.settings, state.printerTelemetry)
+      res.onSuccess { telemetry ->
+        _cadState.update { cur ->
+          cur.copy(
+            printerTelemetry = telemetry,
+            statusMessage =
+              "Printer: ${telemetry.printerStateText} • Nozzle ${telemetry.nozzleActualC.toInt()}°C / Bed ${telemetry.bedActualC.toInt()}°C",
+          )
+        }
+      }
+    }
+  }
+
+  fun runCustomSshCommand(command: String) {
+    val trimmed = command.trim()
+    if (trimmed.isEmpty()) return
+    val state = _cadState.value
+    _cadState.update {
+      it.copy(isProcessing = true, statusMessage = "Running SSH: $trimmed...")
+    }
+    viewModelScope.launch {
+      val res = OctoPiSshAndPrinterService.runSshCommand(state.settings, trimmed)
+      _cadState.update { cur ->
+        val output = res.getOrElse { "SSH Error: ${it.message}" }
+        cur.copy(
+          isProcessing = false,
+          printerTelemetry = cur.printerTelemetry.copy(lastSshOutput = output),
+          statusMessage = "SSH command finished",
         )
       }
     }

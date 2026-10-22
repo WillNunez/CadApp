@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -184,6 +185,11 @@ fun MainScreen(
       )
     },
     onUploadOctoPrint = viewModel::uploadToOctoPrint,
+    onUploadSftp = viewModel::uploadStlViaSftp,
+    onTestSsh = viewModel::testOctoPiSsh,
+    onRefreshPrinter = viewModel::refreshPrinterStatus,
+    onPrinterAction = viewModel::triggerPrinterAction,
+    onRunSshCommand = viewModel::runCustomSshCommand,
     onUpdateSettings = viewModel::updateSettings,
     modifier = modifier,
   )
@@ -208,6 +214,11 @@ fun VoiceToCadWorkspace(
   onExportStep: () -> Unit,
   onExportStl: () -> Unit,
   onUploadOctoPrint: () -> Unit,
+  onUploadSftp: () -> Unit,
+  onTestSsh: () -> Unit,
+  onRefreshPrinter: () -> Unit,
+  onPrinterAction: (com.cadapp.voicetocad.data.PrinterControlAction) -> Unit,
+  onRunSshCommand: (String) -> Unit,
   onUpdateSettings: (com.cadapp.voicetocad.domain.AppSettings) -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -228,35 +239,38 @@ fun VoiceToCadWorkspace(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
         Text(
           text = "VOICE-TO-CAD STUDIO",
           color = Color(0xFFE3F2FD),
-          fontSize = 16.sp,
+          fontSize = 15.sp,
           fontWeight = FontWeight.ExtraBold,
           letterSpacing = 0.8.sp,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
         Text(
           text = "${state.settings.aiMode.label} • OpenCASCADE STEP & STL",
           color = Color(0xFF4FC3F7),
           fontSize = 11.sp,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
       }
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-          text = "Reset Block",
-          color = Color(0xFFFF8A80),
-          fontSize = 11.sp,
-          fontWeight = FontWeight.SemiBold,
-          modifier =
-            Modifier
-              .clip(RoundedCornerShape(8.dp))
-              .background(Color(0xFF1E293B))
-              .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
-              .clickable { onResetWorkspace() }
-              .padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-      }
+      Text(
+        text = "Reset Block",
+        color = Color(0xFFFF8A80),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier =
+          Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF1E293B))
+            .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
+            .clickable { onResetWorkspace() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+      )
     }
 
     // 2. Interactive 3D CAD Viewport
@@ -264,7 +278,7 @@ fun VoiceToCadWorkspace(
       mesh = state.mesh,
       renderMode = state.renderMode,
       onRenderModeChange = onRenderModeChange,
-      modifier = Modifier.fillMaxWidth().height(235.dp),
+      modifier = Modifier.fillMaxWidth().height(205.dp),
     )
 
     // 3. Voice Command Input Bar & Quick Presets
@@ -394,7 +408,7 @@ fun VoiceToCadWorkspace(
     // 4. Workbench Navigation Tabs
     Row(
       modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
       WorkspaceTab.entries.forEach { tab ->
         val selected = state.activeTab == tab
@@ -411,14 +425,15 @@ fun VoiceToCadWorkspace(
                 RoundedCornerShape(10.dp),
               )
               .clickable { onTabSelect(tab) }
-              .padding(vertical = 8.dp),
+              .padding(horizontal = 3.dp, vertical = 8.dp),
         ) {
           Text(
             text = tab.title,
             color = if (selected) Color.White else Color(0xFF90A4AE),
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
           )
         }
       }
@@ -447,24 +462,31 @@ fun VoiceToCadWorkspace(
             state = state,
             onRemoveFeature = onRemoveFeature,
           )
+        WorkspaceTab.OCTOPI_CONTROL ->
+          StlAndOctoPrintTab(
+            state = state,
+            onExportStep = onExportStep,
+            onExportStl = onExportStl,
+            onUploadOctoPrint = onUploadOctoPrint,
+            onUploadSftp = onUploadSftp,
+            onTestSsh = onTestSsh,
+            onRefreshPrinter = onRefreshPrinter,
+            onPrinterAction = onPrinterAction,
+            onRunSshCommand = onRunSshCommand,
+            onUpdateSettings = onUpdateSettings,
+          )
         WorkspaceTab.OCCT_KERNEL ->
           OcctKernelTab(
             script = state.nxOpenScript,
             onCopy = { onCopyText("OpenCASCADE / CadQuery Script", state.nxOpenScript) },
             onShare = onShareScript,
           )
-        WorkspaceTab.FABRICATE_STL ->
-          StlAndOctoPrintTab(
-            state = state,
-            onExportStep = onExportStep,
-            onExportStl = onExportStl,
-            onUploadOctoPrint = onUploadOctoPrint,
-          )
         WorkspaceTab.SETTINGS ->
           AiAndLanSettingsTab(
             settings = state.settings,
             isVoskModelInstalled = isVoskModelInstalled,
             onDownloadVoskModel = onDownloadVoskModel,
+            onTestSsh = onTestSsh,
             onUpdateSettings = onUpdateSettings,
           )
       }
@@ -893,14 +915,14 @@ private fun OcctKernelTab(
     ) {
       Button(
         onClick = onCopy,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1), contentColor = Color.White),
         modifier = Modifier.weight(1f),
       ) {
         Text("Copy OCCT / CadQuery", fontSize = 12.sp)
       }
       Button(
         onClick = onShare,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00897B)),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00897B), contentColor = Color.White),
         modifier = Modifier.weight(1f),
       ) {
         Text("Share Script", fontSize = 12.sp)
@@ -936,16 +958,27 @@ private fun StlAndOctoPrintTab(
   onExportStep: () -> Unit,
   onExportStl: () -> Unit,
   onUploadOctoPrint: () -> Unit,
+  onUploadSftp: () -> Unit,
+  onTestSsh: () -> Unit,
+  onRefreshPrinter: () -> Unit,
+  onPrinterAction: (com.cadapp.voicetocad.data.PrinterControlAction) -> Unit,
+  onRunSshCommand: (String) -> Unit,
+  onUpdateSettings: (com.cadapp.voicetocad.domain.AppSettings) -> Unit,
 ) {
   val mesh = state.mesh
-  val estFilamentGrams = mesh.volumeCm3 * 1.24f * 0.35f // PLA density w/ perimeters + 20% infill
+  val telemetry = state.printerTelemetry
+  val settings = state.settings
+  val estFilamentGrams = mesh.volumeCm3 * 1.24f * 0.35f
+  var showSshConfigMenu by remember { mutableStateOf(false) }
+  var customSshCmd by remember { mutableStateOf("vcgencmd measure_temp && uptime") }
 
   Column(
     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
+    // 1. CAD Export & Direct OctoPi Upload Row
     Text(
-      text = "ON-DEVICE OPENCASCADE .STEP & .STL EXPORT",
+      text = "1. EXPORT & SEND TO OCTOPI (.STEP / .STL)",
       color = Color(0xFF4FC3F7),
       fontSize = 11.sp,
       fontWeight = FontWeight.Bold,
@@ -954,93 +987,378 @@ private fun StlAndOctoPrintTab(
 
     Row(
       modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Button(
+        onClick = onExportStep,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00897B), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text(".STEP", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+      Button(
+        onClick = onExportStl,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text(".STL", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+      Button(
+        onClick = onUploadSftp,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5E35B1), contentColor = Color.White),
+        modifier = Modifier.weight(1.2f),
+      ) {
+        Text("SFTP Send", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+      Button(
+        onClick = onUploadOctoPrint,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+        modifier = Modifier.weight(1.1f),
+      ) {
+        Text("API Send", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+    }
+
+    // 2. Live 3D Printer Telemetry & Status Header
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = "2. LIVE 3D PRINTER CONTROL",
+        color = Color(0xFF4FC3F7),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f).padding(end = 6.dp),
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+          text = if (showSshConfigMenu) "Hide SSH Menu" else "OctoPi SSH Setup",
+          color = Color(0xFFFFD54F),
+          fontSize = 11.sp,
+          fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          modifier =
+            Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(Color(0xFF263238))
+              .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(6.dp))
+              .clickable { showSshConfigMenu = !showSshConfigMenu }
+              .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        Text(
+          text = "Poll Temps",
+          color = Color(0xFF80DEEA),
+          fontSize = 11.sp,
+          fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          modifier =
+            Modifier
+              .clip(RoundedCornerShape(6.dp))
+              .background(Color(0xFF162436))
+              .border(1.dp, Color(0xFF29B6F6), RoundedCornerShape(6.dp))
+              .clickable { onRefreshPrinter() }
+              .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+      }
+    }
+
+    // Collapsible OctoPi SSH Credentials Menu right inside the Printer tab!
+    if (showSshConfigMenu) {
+      OctoPiSshMenuCard(
+        settings = settings,
+        telemetry = telemetry,
+        onTestSsh = onTestSsh,
+        onUpdateSettings = onUpdateSettings,
+      )
+    }
+
+    // Telemetry Cards Row
+    Row(
+      modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       StatCard(
-        label = "DIMENSIONS",
+        label = "PRINTER STATE",
+        value = "${telemetry.printerStateText} (${"%.0f".format(telemetry.jobProgressPercent)}%)",
+        modifier = Modifier.weight(1f),
+      )
+      StatCard(
+        label = "NOZZLE / BED TEMP",
+        value =
+          "N: ${telemetry.nozzleActualC.toInt()}/${telemetry.nozzleTargetC.toInt()}°C • B: ${telemetry.bedActualC.toInt()}/${telemetry.bedTargetC.toInt()}°C",
+        modifier = Modifier.weight(1f),
+      )
+    }
+
+    // 3. Start / Pause / Stop Print Job Controls
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.START_PRINT) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("▶ Start Print", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.PAUSE_RESUME) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57F17), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("⏸ Pause", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.CANCEL_PRINT) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("⏹ Stop", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+      }
+    }
+
+    // 4. Hardware Motion & Thermal Preheats
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.HOME_XYZ) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("Home XYZ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+      }
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.PREHEAT_PLA) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD84315), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("PLA 205°", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+      }
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.PREHEAT_PETG) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAD1457), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("PETG 235°", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+      }
+      Button(
+        onClick = { onPrinterAction(com.cadapp.voicetocad.data.PrinterControlAction.COOLDOWN) },
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White),
+        modifier = Modifier.weight(1f),
+      ) {
+        Text("Cooldown", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+      }
+    }
+
+    // 5. OctoPi SSH Command Runner & Part Info
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      StatCard(
+        label = "PART DIMENSIONS",
         value = "${mesh.boundingBoxMm.x.toInt()}×${mesh.boundingBoxMm.y.toInt()}×${mesh.boundingBoxMm.z.toInt()} mm",
         modifier = Modifier.weight(1f),
       )
       StatCard(
-        label = "VOLUME / MASS",
+        label = "EST. FILAMENT",
         value = "${"%.1f".format(mesh.volumeCm3)} cm³ (~${"%.1f".format(estFilamentGrams)}g PLA)",
         modifier = Modifier.weight(1f),
       )
     }
 
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      StatCard(
-        label = "B-REP / MESH",
-        value = "${mesh.triangles.size} Faces/Tris",
-        modifier = Modifier.weight(1f),
-      )
-      StatCard(
-        label = "CAD FORMATS",
-        value = "ISO-10303 STEP + STL",
-        modifier = Modifier.weight(1f),
-      )
-    }
-
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      Button(
-        onClick = onExportStep,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00897B)),
-        modifier = Modifier.weight(1f),
-      ) {
-        Text("Export .STEP", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-      }
-      Button(
-        onClick = onExportStl,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
-        modifier = Modifier.weight(1f),
-      ) {
-        Text("Export .STL", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-      }
-      Button(
-        onClick = onUploadOctoPrint,
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-        modifier = Modifier.weight(1f),
-      ) {
-        Text("OctoPrint", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-      }
-    }
-
     Text(
-      text = "ON-DEVICE ISO-10303-21 (.STEP AP214) B-REP PREVIEW",
+      text = "OCTOPI SSH TERMINAL (${settings.octoPiSshUser}@${settings.octoPiSshHost})",
       color = Color(0xFF90A4AE),
       fontSize = 10.sp,
       fontFamily = FontFamily.Monospace,
     )
 
-    val previewStep =
-      remember(state.features, mesh) {
-        com.cadapp.voicetocad.domain.OpenCascadeStepKernel
-          .exportIso10303Step(state.features, mesh)
-          .lineSequence()
-          .take(20)
-          .joinToString("\n") + "\n..."
-      }
-    Box(
-      modifier =
-        Modifier
-          .fillMaxWidth()
-          .clip(RoundedCornerShape(8.dp))
-          .background(Color(0xFF070B10))
-          .padding(10.dp)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Text(
-        text = previewStep,
-        color = Color(0xFF80CBC4),
-        fontSize = 10.sp,
-        fontFamily = FontFamily.Monospace,
+      Box(
+        modifier =
+          Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF080D14))
+            .border(1.dp, Color(0xFF263B54), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+      ) {
+        BasicTextField(
+          value = customSshCmd,
+          onValueChange = { customSshCmd = it },
+          textStyle =
+            TextStyle(
+              color = Color(0xFF80CBC4),
+              fontSize = 12.sp,
+              fontFamily = FontFamily.Monospace,
+            ),
+          cursorBrush = SolidColor(Color(0xFF29B6F6)),
+          singleLine = true,
+          modifier = Modifier.fillMaxWidth(),
+        )
+      }
+      Button(
+        onClick = { onRunSshCommand(customSshCmd) },
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00897B), contentColor = Color.White),
+      ) {
+        Text("SSH Exec", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+      }
+    }
+
+    if (telemetry.lastSshOutput.isNotBlank()) {
+      Box(
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF070B10))
+            .border(1.dp, Color(0xFF1E2D3D), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+      ) {
+        Text(
+          text = telemetry.lastSshOutput,
+          color = Color(0xFFA5D6FF),
+          fontSize = 10.sp,
+          fontFamily = FontFamily.Monospace,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun OctoPiSshMenuCard(
+  settings: com.cadapp.voicetocad.domain.AppSettings,
+  telemetry: com.cadapp.voicetocad.domain.PrinterTelemetryState,
+  onTestSsh: () -> Unit,
+  onUpdateSettings: (com.cadapp.voicetocad.domain.AppSettings) -> Unit,
+) {
+  Column(
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(12.dp))
+        .background(Color(0xFF131E2E))
+        .border(1.dp, Color(0xFF29B6F6), RoundedCornerShape(12.dp))
+        .padding(12.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = "OCTOPI SSH & PRINTER CREDENTIALS",
+          color = Color(0xFFFFD54F),
+          fontSize = 11.sp,
+          fontWeight = FontWeight.Bold,
+          fontFamily = FontFamily.Monospace,
+        )
+        Text(
+          text = telemetry.piSystemSummary,
+          color = if (telemetry.sshConnected) Color(0xFF69F0AE) else Color(0xFFB0BEC5),
+          fontSize = 10.sp,
+        )
+      }
+      Button(
+        onClick = onTestSsh,
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1), contentColor = Color.White),
+      ) {
+        Text("Test SSH & Auto-Key", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+      }
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      OutlinedTextField(
+        value = settings.octoPiSshHost,
+        onValueChange = {
+          onUpdateSettings(
+            settings.copy(
+              octoPiSshHost = it,
+              octoPrintUrl = if (it.startsWith("http")) it else "http://$it",
+            )
+          )
+        },
+        label = { Text("OctoPi Host / IP (e.g. octopi.local)") },
+        singleLine = true,
+        modifier = Modifier.weight(2f),
+      )
+      OutlinedTextField(
+        value = settings.octoPiSshPort.toString(),
+        onValueChange = { portStr ->
+          val p = portStr.toIntOrNull() ?: 22
+          onUpdateSettings(settings.copy(octoPiSshPort = p))
+        },
+        label = { Text("Port") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
       )
     }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      OutlinedTextField(
+        value = settings.octoPiSshUser,
+        onValueChange = { onUpdateSettings(settings.copy(octoPiSshUser = it)) },
+        label = { Text("SSH Username (e.g. pi)") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
+      )
+      OutlinedTextField(
+        value = settings.octoPiSshPassword,
+        onValueChange = { onUpdateSettings(settings.copy(octoPiSshPassword = it)) },
+        label = { Text("SSH Password") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
+      )
+    }
+
+    OutlinedTextField(
+      value = settings.octoPiRemoteDir,
+      onValueChange = { onUpdateSettings(settings.copy(octoPiRemoteDir = it)) },
+      label = { Text("SFTP Upload Folder (/home/pi/.octoprint/watched)") },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth(),
+    )
+
+    OutlinedTextField(
+      value = settings.octoPrintApiKey,
+      onValueChange = { onUpdateSettings(settings.copy(octoPrintApiKey = it)) },
+      label = { Text("OctoPrint API Key (auto-filled when you tap Test SSH)") },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth(),
+    )
   }
 }
 
@@ -1081,12 +1399,79 @@ private fun AiAndLanSettingsTab(
   settings: com.cadapp.voicetocad.domain.AppSettings,
   isVoskModelInstalled: Boolean,
   onDownloadVoskModel: () -> Unit,
+  onTestSsh: () -> Unit,
   onUpdateSettings: (com.cadapp.voicetocad.domain.AppSettings) -> Unit,
 ) {
   Column(
     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
+    Text(
+      text = "OCTOPI SSH & 3D PRINTER SETUP",
+      color = Color(0xFFFFD54F),
+      fontSize = 11.sp,
+      fontWeight = FontWeight.Bold,
+      fontFamily = FontFamily.Monospace,
+    )
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      OutlinedTextField(
+        value = settings.octoPiSshHost,
+        onValueChange = {
+          onUpdateSettings(
+            settings.copy(
+              octoPiSshHost = it,
+              octoPrintUrl = if (it.startsWith("http")) it else "http://$it",
+            )
+          )
+        },
+        label = { Text("OctoPi Host / IP (octopi.local)") },
+        singleLine = true,
+        modifier = Modifier.weight(2f),
+      )
+      OutlinedTextField(
+        value = settings.octoPiSshPort.toString(),
+        onValueChange = { portStr ->
+          onUpdateSettings(settings.copy(octoPiSshPort = portStr.toIntOrNull() ?: 22))
+        },
+        label = { Text("SSH Port") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
+      )
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      OutlinedTextField(
+        value = settings.octoPiSshUser,
+        onValueChange = { onUpdateSettings(settings.copy(octoPiSshUser = it)) },
+        label = { Text("SSH User (pi)") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
+      )
+      OutlinedTextField(
+        value = settings.octoPiSshPassword,
+        onValueChange = { onUpdateSettings(settings.copy(octoPiSshPassword = it)) },
+        label = { Text("SSH Password") },
+        singleLine = true,
+        modifier = Modifier.weight(1f),
+      )
+    }
+
+    Button(
+      onClick = onTestSsh,
+      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1), contentColor = Color.White),
+      modifier = Modifier.fillMaxWidth(),
+    ) {
+      Text("Test OctoPi SSH Connection & Auto-Fetch OctoPrint API Key", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
     Text(
       text = "SPEECH-TO-TEXT (STT) ENGINE • PIXEL 9 PRO & OPEN-SOURCE",
       color = Color(0xFF4FC3F7),

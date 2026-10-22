@@ -465,6 +465,19 @@ enum class AiMode(val label: String, val description: String) {
   ),
 }
 
+data class PrinterTelemetryState(
+  val printerStateText: String = "Idle / Ready to Poll",
+  val nozzleActualC: Float = 24.0f,
+  val nozzleTargetC: Float = 0.0f,
+  val bedActualC: Float = 23.0f,
+  val bedTargetC: Float = 0.0f,
+  val jobFileName: String = "voice_to_cad_part.stl",
+  val jobProgressPercent: Float = 0.0f,
+  val sshConnected: Boolean = false,
+  val piSystemSummary: String = "Not connected — enter OctoPi SSH info & tap Test SSH",
+  val lastSshOutput: String = "",
+)
+
 data class AppSettings(
   val sttEngine: SttEngineMode = SttEngineMode.PIXEL_TENSOR_OFFLINE,
   val useVoskCadGrammar: Boolean = true,
@@ -479,4 +492,9 @@ data class AppSettings(
   val octoPrintUrl: String = "http://octopi.local",
   val octoPrintApiKey: String = "",
   val autoStartPrintOnUpload: Boolean = false,
+  val octoPiSshHost: String = "octopi.local",
+  val octoPiSshPort: Int = 22,
+  val octoPiSshUser: String = "pi",
+  val octoPiSshPassword: String = "",
+  val octoPiRemoteDir: String = "/home/pi/.octoprint/watched",
 )
