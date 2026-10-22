@@ -264,7 +264,7 @@ fun VoiceToCadWorkspace(
       mesh = state.mesh,
       renderMode = state.renderMode,
       onRenderModeChange = onRenderModeChange,
-      modifier = Modifier.fillMaxWidth().height(250.dp),
+      modifier = Modifier.fillMaxWidth().height(235.dp),
     )
 
     // 3. Voice Command Input Bar & Quick Presets
@@ -723,7 +723,7 @@ private fun DimensionsTableTab(
                 activeTrackColor = Color(0xFF0288D1),
                 inactiveTrackColor = Color(0xFF1B2B40),
               ),
-            modifier = Modifier.fillMaxWidth().height(22.dp),
+            modifier = Modifier.fillMaxWidth().height(36.dp),
           )
         }
       }
