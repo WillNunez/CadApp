@@ -440,10 +440,6 @@ enum class SttEngineMode(val label: String, val description: String) {
     "Pixel 9 Pro Tensor G4 Offline Speech (CAD-Biased)",
     "Uses Tensor G4 hardware offline transducer (EXTRA_PREFER_OFFLINE + CAD vocabulary biasing)",
   ),
-  VOSK_OFFLINE(
-    "Vosk Open-Source Offline (Apache 2.0 Kaldi)",
-    "100% open-source offline STT on phone with downloadable model & strict CAD grammar mode",
-  ),
   WHISPER_OPEN_SOURCE(
     "Open-Source Whisper (whisper.cpp / faster-whisper)",
     "Records 16kHz PCM WAV and transcribes via open-source Whisper server with CAD prompt conditioning",

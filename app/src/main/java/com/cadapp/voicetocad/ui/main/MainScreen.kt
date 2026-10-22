@@ -1125,45 +1125,6 @@ private fun AiAndLanSettingsTab(
       }
     }
 
-    if (settings.sttEngine == com.cadapp.voicetocad.domain.SttEngineMode.VOSK_OFFLINE) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-          text =
-            if (isVoskModelInstalled) "Vosk Model Installed (Offline Ready)"
-            else "Vosk English Model (~40 MB) Not Installed",
-          color = if (isVoskModelInstalled) Color(0xFF69F0AE) else Color(0xFFFFD54F),
-          fontSize = 11.sp,
-          modifier = Modifier.weight(1f),
-        )
-        Button(
-          onClick = onDownloadVoskModel,
-          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
-        ) {
-          Text(if (isVoskModelInstalled) "Re-Download" else "Download Model", fontSize = 11.sp)
-        }
-      }
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-      ) {
-        Checkbox(
-          checked = settings.useVoskCadGrammar,
-          onCheckedChange = { onUpdateSettings(settings.copy(useVoskCadGrammar = it)) },
-          colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00E5FF)),
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-          text = "Strict CAD Domain Grammar (fillet, chamfer, bore, shell, mm)",
-          color = Color(0xFFCFD8DC),
-          fontSize = 11.sp,
-        )
-      }
-    }
-
     if (settings.sttEngine == com.cadapp.voicetocad.domain.SttEngineMode.WHISPER_OPEN_SOURCE) {
       OutlinedTextField(
         value = settings.whisperEndpointUrl,
